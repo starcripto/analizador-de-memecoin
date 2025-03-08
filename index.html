@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Analizador de Memecoins Solana</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj4KICA8Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0NSIgZmlsbD0iIzk5NDVGRiIgLz4KICA8cGF0aCBkPSJNMzAgMzVMNzAgMzVMNTAgNjVaIiBmaWxsPSIjMTRGMTk1IiAvPgo8L3N2Zz4=">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'solana': '#9945FF',
+            'solana-light': '#14F195',
+            'warning': '#f59e0b',
+            'danger': '#ef4444',
+            'success': '#10b981',
+          },
+        },
+      },
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-icons@4.10.1/fa/index.esm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/babel-standalone@6.26.0/babel.min.js"></script>
+  <style>
+    body {
+      background-color: #0f172a;
+      color: white;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    }
+    
+    .card {
+      background-color: #1e293b;
+      border-radius: 0.5rem;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    }
+    
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 0.375rem;
+      padding: 0.5rem 1rem;
+      font-weight: 500;
+      transition-property: background-color, border-color, color, fill, stroke;
+      transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+      transition-duration: 150ms;
+    }
+    
+    .btn-primary {
+      background-color: #9945FF;
+      color: white;
+    }
+    
+    .btn-primary:hover {
+      background-color: #8035ee;
+    }
+    
+    .btn-secondary {
+      background-color: #334155;
+      color: white;
+    }
+    
+    .btn-secondary:hover {
+      background-color: #475569;
+    }
+    
+    .risk-high {
+      color: #ef4444;
+    }
+    
+    .risk-medium {
+      color: #f59e0b;
+    }
+    
+    .risk-low {
+      color: #10b981;
+    }
+    
+    .progress-bar {
+      height: 0.5rem;
+      border-radius: 9999px;
+      overflow: hidden;
+    }
+    
+    .progress-bar-inner {
+      height: 100%;
+      border-radius: 9999px;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    // Componentes
+    const { useState, useEffect } = React;
+    const { FaSearch, FaExclamationTriangle, FaCheckCircle, FaInfoCircle, FaHistory, FaExchangeAlt, FaArrowUp, FaArrowDown, FaChartPie, FaWater } = window.ReactIcons || {};
+
+    // Componente Header
+    const Header = ({ onSearch }) => {
+      const [mintAddress, setMintAddress] = useState('');
+      
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        if (mintAddress.trim()) {
+          onSearch(mintAddress.trim());
+        }
+      };
+      
+      return (
+        <header className="bg-gray-800 py-4 px-6 mb-6 rounded-lg shadow-lg">
+          <div className="flex flex-col md:flex-row md:items-center justify-between">
+            <div className="flex items-center mb-4 md:mb-0">
+              <div className="w-10 h-10 rounded-full bg-solana flex items-center justify-center mr-3">
+                <div className="w-6 h-6 bg-solana-light" style={{ clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' }}></div>
+              </div>
+              <h1 className="text-2xl font-bold">Solana Memecoin Analyzer</h1>
+            </div>
+            
+            <form onSubmit={handleSubmit} className="flex w-full md:w-auto">
+              <input
+                type="text"
+                placeholder="Dirección del token (mint address)"
+                className="flex-grow px-4 py-2 bg-gray-700 rounded-l text-white focus:outline-none focus:ring-2 focus:ring-solana"
+                value={mintAddress}
+                onChange={(e) => setMintAddress(e.target.value)}
+              />
+              <button 
+                type="submit" 
+                className="bg-solana hover:bg-solana-light text-white px-4 py-2 rounded-r flex items-center transition-colors"
+              >
+                <FaSearch className="mr-2" />
+                Analizar
+              </button>
+            </form>
+          </div>
+        </header>
+      );
+    };
+
+    // Componente TokenAnalyzer
+    const TokenAnalyzer = ({ mintAddress, onDataLoaded }) => {
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState(null);
+      const [tokenData, setTokenData] = useState(null);
+      
+      useEffect(() => {
+        if (!mintAddress) return;
+        
+        const fetchTokenData = async () => {
+          setLoading(true);
+          setError(null);
+          
+          try {
+            // En la versión gratuita, simulamos la carga de datos
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            
+            // Datos simulados para demostración
+            const simulatedData = {
+              mint: mintAddress,
+              name: "Memecoin " + mintAddress.substring(0, 4),
+              symbol: mintAddress.substring(0, 4).toUpperCase(),
+              decimals: 9,
+              totalSupply: Math.floor(Math.random() * 1000000000000),
+              createdAt: Date.now() - Math.floor(Math.random() * 30) * 24 * 60 * 60 * 1000,
+              info: {
+                mintAuthority: Math.random() > 0.5,
+                freezeAuthority: Math.random() > 0.7,
+                website: Math.random() > 0.6 ? "https://example.com" : null,
+                twitter: Math.random() > 0.5 ? "@" + mintAddress.substring(0, 8) : null,
+              },
+              holders: [
+                { address: "111...111", amount: Math.floor(Math.random() * 500000000000) },
+                { address: "222...222", amount: Math.floor(Math.random() * 300000000000) },
+                { address: "333...333", amount: Math.floor(Math.random() * 100000000000) },
+                { address: "444...444", amount: Math.floor(Math.random() * 50000000000) },
+                { address: "555...555", amount: Math.floor(Math.random() * 30000000000) },
+              ],
+              liquidity: {
+                totalUsd: Math.floor(Math.random() * 200000),
+                pools: [
+                  { name: "Raydium", usd: Math.floor(Math.random() * 150000) },
+                  { name: "Orca", usd: Math.floor(Math.random() * 50000) },
+                ]
+              },
+              price: Math.random() * 0.0001,
+              marketCap: Math.floor(Math.random() * 10000000),
+              fullyDilutedValuation: Math.floor(Math.random() * 50000000),
+              rank: Math.floor(Math.random() * 1000) + 1,
+            };
+            
+            setTokenData(simulatedData);
+            
+            // Analizar riesgo
+            const riskAnalysis = analyzeRugRisk(simulatedData);
+            const tokenWithRisk = { ...simulatedData, riskAnalysis };
+            
+            // Guardar en historial
+            const history = JSON.parse(localStorage.getItem('tokenHistory') || '[]');
+            const exists = history.findIndex(item => item.mint === mintAddress);
+            
+            if (exists >= 0) {
+              history.splice(exists, 1);
+            }
+            
+            history.unshift({
+              mint: mintAddress,
+              timestamp: Date.now(),
+              risk: riskAnalysis.risk
+            });
+            
+            localStorage.setItem('tokenHistory', JSON.stringify(history.slice(0, 10)));
+            
+            // Notificar al componente padre
+            if (onDataLoaded) {
+              onDataLoaded(tokenWithRisk);
+            }
+          } catch (err) {
+            console.error("Error al cargar datos del token:", err);
+            setError("No se pudieron cargar los datos del token. Por favor, verifica la dirección e intenta nuevamente.");
+          } finally {
+            setLoading(false);
+          }
+        };
+        
+        fetchTokenData();
+      }, [mintAddress]);
+      
+      if (!mintAddress) {
+        return (
+          <div className="card text-center py-12">
+            <FaSearch className="mx-auto text-5xl text-gray-500 mb-4" />
+            <h3 className="text-xl font-medium text-gray-400">
+              Ingresa una dirección de token para comenzar el análisis
+            </h3>
+          </div>
+        );
+      }
+      
+      if (loading) {
+        return (
+          <div className="card text-center py-12">
+            <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-solana mx-auto mb-4"></div>
+            <h3 className="text-xl font-medium">
+              Analizando token...
+            </h3>
+            <p className="text-gray-400 mt-2">
+              Dirección: {mintAddress}
+            </p>
+          </div>
+        );
+      }
+      
+      if (error) {
+        return (
+          <div className="card text-center py-12 border border-red-500">
+            <FaExclamationTriangle className="mx-auto text-5xl text-red-500 mb-4" />
+            <h3 className="text-xl font-medium text-red-400">
+              Error al analizar el token
+            </h3>
+            <p className="text-gray-400 mt-2">
+              {error}
+            </p>
+            <p className="text-gray-400 mt-4">
+              Dirección: {mintAddress}
+            </p>
+          </div>
+        );
+      }
+      
+      if (!tokenData) return null;
+      
+      const { riskAnalysis } = tokenData;
+      
+      return (
+        <div className="card">
+          <div className="flex justify-between items-start mb-6">
+            <div>
+              <h2 className="text-2xl font-bold">{tokenData.name}</h2>
+              <p className="text-gray-400">{tokenData.symbol}</p>
+            </div>
+            
+            <div className={`px-3 py-1 rounded-full font-medium ${
+              riskAnalysis.risk === 'Alto' ? 'bg-red-900/30 text-red-400' : 
+              riskAnalysis.risk === 'Medio' ? 'bg-yellow-900/30 text-yellow-400' : 
+              'bg-green-900/30 text-green-400'
+            }`}>
+              Riesgo: {riskAnalysis.risk}
+            </div>
+          </div>
+          
+          <div className="mb-6">
+            <div className="flex justify-between mb-2">
+              <span className="text-gray-400">Puntuación de riesgo</span>
+              <span className="font-bold">{riskAnalysis.score}/100</span>
+            </div>
+            <div className="progress-bar bg-gray-700">
+              <div 
+                className="progress-bar-inner" 
+                style={{ 
+                  width: `${riskAnalysis.score}%`,
+                  backgroundColor: riskAnalysis.risk === 'Alto' ? '#ef4444' : 
+                                  riskAnalysis.risk === 'Medio' ? '#f59e0b' : 
+                                  '#10b981'
+                }}
+              ></div>
+            </div>
+          </div>
+          
+          {riskAnalysis.warnings.length > 0 && (
+            <div className="mb-6 p-3 bg-gray-700 rounded-lg">
+              <h3 className="font-bold mb-2 flex items-center">
+                <FaExclamationTriangle className="mr-2 text-yellow-400" />
+                Advertencias
+              </h3>
+              <ul className="space-y-1 text-sm">
+                {riskAnalysis.warnings.map((warning, index) => (
+                  <li key={index} className="flex items-start">
+                    <span className="mr-2">•</span>
+                    <span>{warning}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          
+          <div className="text-xs text-gray-400 mt-4">
+            Nota: En la versión gratuita, se muestran datos simulados para demostración.
+          </div>
+        </div>
+      );
+    };
+
+    // Componente TokenDetails
+    const TokenDetails = ({ tokenData }) => {
+      if (!tokenData) return null;
+      
+      const tokenAge = Math.max(1, Math.floor((Date.now() - tokenData.createdAt) / (1000 * 60 * 60 * 24)));
+      
+      return (
+        <div className="card">
+          <h3 className="text-xl font-bold mb-4 flex items-center">
+            <FaInfoCircle className="mr-2" />
+            Detalles del Token
+          </h3>
+          
+          <div className="space-y-4">
+            <div>
+              <h4 className="text-gray-400 text-sm">Dirección del Token</h4>
+              <p className="font-mono bg-gray-700 p-2 rounded mt-1 text-sm overflow-x-auto">
+                {tokenData.mint}
+              </p>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <h4 className="text-gray-400 text-sm">Suministro Total</h4>
+                <p className="font-bold">
+                  {tokenData.totalSupply.toLocaleString()}
+                </p>
+              </div>
+              
+              <div>
+                <h4 className="text-gray-400 text-sm">Edad del Token</h4>
+                <p className="font-bold">
+                  {tokenAge} {tokenAge === 1 ? 'día' : 'días'}
+                </p>
+              </div>
+              
+              <div>
+                <h4 className="text-gray-400 text-sm">Autoridad de Mint</h4>
+                <p className={tokenData.info.mintAuthority ? "text-red-400" : "text-green-400"}>
+                  {tokenData.info.mintAuthority ? "Activa" : "Desactivada"}
+                </p>
+              </div>
+              
+              <div>
+                <h4 className="text-gray-400 text-sm">Autoridad de Congelación</h4>
+                <p className={tokenData.info.freezeAuthority ? "text-yellow-400" : "text-green-400"}>
+                  {tokenData.info.freezeAuthority ? "Activa" : "Desactivada"}
+                </p>
+              </div>
+            </div>
+            
+            <div className="pt-4 border-t border-gray-700">
+              <h4 className="text-gray-400 text-sm mb-2">Factores de Seguridad</h4>
+              
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <span>Autoridad de Mint Renunciada</span>
+                  <span className={!tokenData.info.mintAuthority ? "text-green-400" : "text-red-400"}>
+                    {!tokenData.info.mintAuthority ? "Sí" : "No"}
+                  </span>
+                </div>
+                
+                <div className="flex justify-between items-center">
+                  <span>Autoridad de Congelación Renunciada</span>
+                  <span className={!tokenData.info.freezeAuthority ? "text-green-400" : "text-yellow-400"}>
+                    {!tokenData.info.freezeAuthority ? "Sí" : "No"}
+                  </span>
+                </div>
+                
+                <div className="flex justify-between items-center">
+                  <span>Edad Suficiente</span>
+                  <span className={tokenAge > 7 ? "text-green-400" : tokenAge > 3 ? "text-yellow-400" : "text-red-400"}>
+                    {tokenAge > 7 ? "Sí" : tokenAge > 3 ? "Moderada" : "No"}
+                  </span>
+                </div>
+              </div>
+            </div>
+            
+            {(tokenData.info.website || tokenData.info.twitter) && (
+              <div className="pt-4 border-t border-gray-700">
+                <h4 className="text-gray-400 text-sm mb-2">Enlaces</h4>
+                
+                <div className="space-y-2">
+                  {tokenData.info.website && (
+                    <div className="flex items-center">
+                      <span className="mr-2">🌐</span>
+                      <a href="#" className="text-solana hover:underline">{tokenData.info.website}</a>
+                    </div>
+                  )}
+                  
+                  {tokenData.info.twitter && (
+                    <div className="flex items-center">
+                      <span className="mr-2">🐦</span>
+                      <a href="#" className="text-solana hover:underline">{tokenData.info.twitter}</a>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    // Componente TokenDistribution
+    const TokenDistribution = ({ holders = [] }) => {
+      if (!holders || holders.length === 0) return null;
+      
+      const totalTokens = holders.reduce((sum, holder) => sum + holder.amount, 0);
+      
+      // Calcular porcentajes para cada holder
+      const holdersWithPercentage = holders.map(holder => ({
+        ...holder,
+        percentage: (holder.amount / totalTokens) * 100
+      }));
+      
+      // Colores para el gráfico
+      const colors = [
+        '#9945FF', '#14F195', '#f59e0b', '#ef4444', '#8b5cf6'
+      ];
+      
+      return (
+        <div className="card">
+          <h3 className="text-xl font-bold mb-4 flex items-center">
+            <FaChartPie className="mr-2" />
+            Distribución de Tokens
+          </h3>
+          
+          <div className="flex flex-col md:flex-row">
+            <div className="w-full md:w-1/2 mb-4 md:mb-0 flex justify-center items-center">
+              <div className="relative w-40 h-40">
+                <svg viewBox="0 0 100 100" className="w-full h-full">
+                  {holdersWithPercentage.map((holder, index) => {
+                    // Calcular ángulos para el gráfico de pastel
+                    const startAngle = index === 0 ? 0 : 
+                      holdersWithPercentage
+                        .slice(0, index)
+                        .reduce((sum, h) => sum + h.percentage, 0) * 3.6;
+                    
+                    const endAngle = startAngle + holder.percentage * 3.6;
+                    
+                    // Convertir ángulos a coordenadas
+                    const startX = 50 + 50 * Math.cos(startAngle * Math.PI / 180);
+                    const startY = 50 + 50 * Math.sin(startAngle * Math.PI / 180);
+                    const endX = 50 + 50 * Math.cos(endAngle * Math.PI / 180);
+                    const endY = 50 + 50 * Math.sin(endAngle * Math.PI / 180);
+                    
+                    // Determinar si el arco es mayor a 180 grados
+                    const largeArcFlag = holder.percentage > 50 ? 1 : 0;
+                    
+                    return (
+                      <path 
+                        key={index}
+                        d={`M 50 50 L ${startX} ${startY} A 50 50 0 ${largeArcFlag} 1 ${endX} ${endY} Z`}
+                        fill={colors[index % colors.length]}
+                      />
+                    );
+                  })}
+                </svg>
+              </div>
+            </div>
+            
+            <div className="w-full md:w-1/2">
+              <ul className="space-y-3">
+                {holdersWithPercentage.map((holder, index) => (
+                  <li key={index} className="flex items-center">
+                    <div 
+                      className="w-3 h-3 rounded-full mr-2" 
+                      style={{ backgroundColor: colors[index % colors.length] }}
+                    ></div>
+                    <div className="flex-grow">
+                      <div className="flex justify-between">
+                        <span className="font-mono text-sm">{holder.address}</span>
+                        <span className="font-bold">{holder.percentage.toFixed(1)}%</span>
+                      </div>
+                      <div className="w-full bg-gray-700 h-1.5 rounded-full mt-1">
+                        <div 
+                          className="h-full rounded-full" 
+                          style={{ 
+                            width: `${holder.percentage}%`,
+                            backgroundColor: colors[index % colors.length]
+                          }}
+                        ></div>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              
+              <div className="text-xs text-gray-400 mt-4">
+                Nota: En la versión gratuita, solo se muestran los 5 principales holders.
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // Componente LiquidityInfo
+    const LiquidityInfo = ({ liquidity }) => {
+      if (!liquidity) return null;
+      
+      // Determinar nivel de riesgo basado en liquidez
+      let riskLevel = 'Alto';
+      let riskColor = 'text-red-400';
+      
+      if (liquidity.totalUsd > 100000) {
+        riskLevel = 'Bajo';
+        riskColor = 'text-green-400';
+      } else if (liquidity.totalUsd > 20000) {
+        riskLevel = 'Medio';
+        riskColor = 'text-yellow-400';
+      }
+      
+      return (
+        <div className="card">
+          <h3 className="text-xl font-bold mb-4 flex items-center">
+            <FaWater className="mr-2" />
+            Información de Liquidez
+          </h3>
+          
+          <div className="mb-4">
+            <div className="flex justify-between items-center mb-2">
+              <h4 className="text-gray-400">Liquidez Total</h4>
+              <span className="font-bold text-xl">
+                ${liquidity.totalUsd.toLocaleString()}
+              </span>
+            </div>
+            
+            <div className="flex items-center">
+              <span className="mr-2">Nivel de riesgo:</span>
+              <span className={`font-medium ${riskColor}`}>{riskLevel}</span>
+            </div>
+          </div>
+          
+          <div className="border-t border-gray-700 pt-4">
+            <h4 className="text-gray-400 mb-3">Distribución de Liquidez</h4>
+            
+            <ul className="space-y-3">
+              {liquidity.pools.map((pool, index) => (
+                <li key={index}>
+                  <div className="flex justify-between mb-1">
+                    <span>{pool.name}</span>
+                    <span className="font-medium">${pool.usd.toLocaleString()}</span>
+                  </div>
+                  <div className="w-full bg-gray-700 h-2 rounded-full">
+                    <div 
+                      className="h-full rounded-full bg-solana" 
+                      style={{ width: `${(pool.usd / liquidity.totalUsd) * 100}%` }}
+                    ></div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+          
+          <div className="mt-4 p-3 bg-gray-700 rounded-lg text-sm">
+            <p className={riskColor}>
+              <strong>Análisis de riesgo:</strong> {
+                riskLevel === 'Alto' ? 'Liquidez muy baja, alto riesgo de volatilidad extrema y posible rug pull.' :
+                riskLevel === 'Medio' ? 'Liquidez moderada, riesgo medio de volatilidad.' :
+                'Buena liquidez, menor riesgo de volatilidad extrema.'
+              }
+            </p>
+          </div>
+          
+          <div className="text-xs text-gray-400 mt-4">
+            Nota: En la versión gratuita, se muestran datos simulados de liquidez.
+          </div>
+        </div>
+      );
+    };
+
+    // Componente MarketInfo
+    const MarketInfo = ({ data }) => {
+      if (!data) return null;
+      
+      return (
+        <div className="card">
+          <h3 className="text-xl font-bold mb-4">Información de Mercado</h3>
+          
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <h4 className="text-gray-400 text-sm">Precio</h4>
+              <p className="font-bold">
+                ${data.price.toFixed(data.price < 0.00001 ? 10 : 6)}
+              </p>
+            </div>
+            
+            <div>
+              <h4 className="text-gray-400 text-sm">Market Cap</h4>
+              <p className="font-bold">
+                ${data.marketCap.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </p>
+            </div>
+            
+            <div>
+              <h4 className="text-gray-400 text-sm">FDV</h4>
+              <p className="font-bold">
+                ${data.fullyDilutedValuation.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </p>
+            </div>
+          </div>
+          
+          <div className="mt-4 p-3 bg-gray-700 rounded-lg">
+            <p className="text-sm text-gray-300">
+              Rank aproximado: #{data.rank}
+            </p>
+            <p className="text-xs text-gray-400 mt-1">
+              Nota: En la versión gratuita, se muestran datos simulados de mercado.
+            </p>
+          </div>
+        </div>
+      );
+    };
+
+    // Componente RecentTransactions
+    const RecentTransactions = ({ transactions = [] }) => {
+      // En la versión gratuita, simulamos transacciones
+      const simulatedTransactions = [
+        {
+          signature: 'sig1...',
+          type: 'buy',
+          amount: Math.random() * 10000,
+          time: Date.now() - 1000 * 60 * 5,
+          address: '111...111'
+        },
+        {
+          signature: 'sig2...',
+          type: 'sell',
+          amount: Math.random() * 5000,
+          time: Date.now() - 1000 * 60 * 15,
+          address: '222...222'
+        },
+        {
+          signature: 'sig3...',
+          type: 'buy',
+          amount: Math.random() * 8000,
+          time: Date.now() - 1000 * 60 * 30,
+          address: '333...333'
+        },
+        {
+          signature: 'sig4...',
+          type: 
+          signature: 'sig4...',
+          type: 'sell',
+          amount: Math.random() * 3000,
+          time: Date.now() - 1000 * 60 * 45,
+          address: '444...444'
+        },
+      ];
+      
+      const txToShow = transactions.length > 0 ? transactions : simulatedTransactions;
+      
+      return (
+        <div className="card">
+          <h3 className="text-xl font-bold mb-4 flex items-center">
+            <FaExchangeAlt className="mr-2" />
+            Transacciones Recientes
+          </h3>
+          
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="text-left text-gray-400 border-b border-gray-700">
+                  <th className="pb-2">Tipo</th>
+                  <th className="pb-2">Cantidad</th>
+                  <th className="pb-2">Tiempo</th>
+                  <th className="pb-2">Dirección</th>
+                </tr>
+              </thead>
+              <tbody>
+                {txToShow.map((tx, index) => (
+                  <tr key={index} className="border-b border-gray-700">
+                    <td className="py-3">
+                      <span className={`flex items-center ${tx.type === 'buy' ? 'text-green-400' : 'text-red-400'}`}>
+                        {tx.type === 'buy' ? <FaArrowUp className="mr-1" /> : <FaArrowDown className="mr-1" />}
+                        {tx.type === 'buy' ? 'Compra' : 'Venta'}
+                      </span>
+                    </td>
+                    <td className="py-3">
+                      {tx.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </td>
+                    <td className="py-3 text-gray-400">
+                      {new Date(tx.time).toLocaleTimeString()}
+                    </td>
+                    <td className="py-3 font-mono text-sm">
+                      {tx.address}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          
+          <p className="text-sm text-gray-400 mt-4">
+            Nota: En la versión gratuita, se muestran datos simulados de transacciones.
+          </p>
+        </div>
+      );
+    };
+
+    // Componente RecentTokens
+    const RecentTokens = ({ onSelect }) => {
+      const [recentTokens, setRecentTokens] = useState([]);
+      
+      useEffect(() => {
+        // Cargar historial desde localStorage
+        const history = JSON.parse(localStorage.getItem('tokenHistory') || '[]');
+        setRecentTokens(history);
+      }, []);
+      
+      if (recentTokens.length === 0) {
+        return (
+          <div className="card">
+            <h3 className="text-xl font-bold mb-4 flex items-center">
+              <FaHistory className="mr-2" />
+              Tokens Recientes
+            </h3>
+            <p className="text-gray-400">
+              Los tokens analizados aparecerán aquí.
+            </p>
+          </div>
+        );
+      }
+      
+      return (
+        <div className="card">
+          <h3 className="text-xl font-bold mb-4 flex items-center">
+            <FaHistory className="mr-2" />
+            Tokens Recientes
+          </h3>
+          
+          <ul className="space-y-2">
+            {recentTokens.map((token, index) => (
+              <li 
+                key={index}
+                className="p-3 bg-gray-700 rounded hover:bg-gray-600 cursor-pointer transition-colors"
+                onClick={() => onSelect(token.mint)}
+              >
+                <div className="flex justify-between items-center">
+                  <span className="font-medium">{token.mint.slice(0, 6)}...{token.mint.slice(-4)}</span>
+                  <span className={`flex items-center text-sm ${
+                    token.risk === 'Alto' ? 'text-red-400' : 
+                    token.risk === 'Medio' ? 'text-yellow-400' : 
+                    'text-green-400'
+                  }`}>
+                    {token.risk === 'Alto' ? (
+                      <FaExclamationTriangle className="mr-1" />
+                    ) : (
+                      <FaCheckCircle className="mr-1" />
+                    )}
+                    {token.risk}
+                  </span>
+                </div>
+                <div className="text-xs text-gray-400 mt-1">
+                  {new Date(token.timestamp).toLocaleString()}
+                </div>
+              </li>
+            ))}
+          </ul>
+          
+          <button 
+            className="btn btn-secondary w-full mt-4 text-sm"
+            onClick={() => {
+              localStorage.removeItem('tokenHistory');
+              setRecentTokens([]);
+            }}
+          >
+            Limpiar historial
+          </button>
+        </div>
+      );
+    };
+
+    // Función de análisis de riesgo
+    function analyzeRugRisk(tokenData) {
+      if (!tokenData) return { score: 0, warnings: [] };
+      
+      let score = 0;
+      const warnings = [];
+      
+      // 1. Verificar si la autoridad de mint está congelada
+      if (tokenData.info.mintAuthority) {
+        score += 30;
+        warnings.push('La autoridad de mint no está congelada');
+      }
+      
+      // 2. Verificar concentración de holders
+      const totalTokens = tokenData.holders.reduce((sum, holder) => sum + holder.amount, 0);
+      const topHolder = tokenData.holders[0];
+      const topHolderPercentage = (topHolder.amount / totalTokens) * 100;
+      
+      if (topHolderPercentage > 50) {
+        score += 25;
+        warnings.push(`Alta concentración: ${Math.round(topHolderPercentage)}% en top holder`);
+      } else if (topHolderPercentage > 30) {
+        score += 15;
+        warnings.push(`Concentración moderada: ${Math.round(topHolderPercentage)}% en top holder`);
+      }
+      
+      // 3. Verificar liquidez
+      if (tokenData.liquidity.totalUsd < 5000) {
+        score += 25;
+        warnings.push('Liquidez muy baja: menos de $5,000 USD');
+      } else if (tokenData.liquidity.totalUsd < 50000) {
+        score += 15;
+        warnings.push('Liquidez baja: menos de $50,000 USD');
+      }
+      
+      // 4. Verificar edad del token
+      const tokenAge = (Date.now() - tokenData.createdAt) / (1000 * 60 * 60 * 24);
+      if (tokenAge < 3) {
+        score += 20;
+        warnings.push(`Token muy reciente: ${Math.round(tokenAge)} días`);
+      } else if (tokenAge < 7) {
+        score += 10;
+        warnings.push(`Token reciente: ${Math.round(tokenAge)} días`);
+      }
+      
+      return {
+        score: Math.min(score, 100),
+        risk: score > 70 ? 'Alto' : score > 40 ? 'Medio' : 'Bajo',
+        warnings
+      };
+    }
+
+    // Componente principal App
+    const App = () => {
+      const [mintAddress, setMintAddress] = useState('');
+      const [tokenData, setTokenData] = useState(null);
+      
+      const handleSearch = (address) => {
+        setMintAddress(address);
+        setTokenData(null);
+      };
+      
+      const handleDataLoaded = (data) => {
+        setTokenData(data);
+      };
+      
+      return (
+        <div className="container mx-auto px-4 py-8 max-w-6xl">
+          <Header onSearch={handleSearch} />
+          
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2">
+              <TokenAnalyzer 
+                mintAddress={mintAddress} 
+                onDataLoaded={handleDataLoaded} 
+              />
+              
+              {tokenData && (
+                <>
+                  <TokenDetails tokenData={tokenData} />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <MarketInfo data={tokenData} />
+                    <LiquidityInfo liquidity={tokenData.liquidity} />
+                  </div>
+                  <TokenDistribution holders={tokenData.holders} />
+                  <RecentTransactions />
+                </>
+              )}
+            </div>
+            
+            <div>
+              <RecentTokens onSelect={handleSearch} />
+              
+              <div className="card">
+                <h3 className="text-xl font-bold mb-4">Acerca de</h3>
+                <p className="text-gray-300 mb-4">
+                  Solana Memecoin Analyzer es una herramienta gratuita para analizar tokens en la red Solana y detectar posibles señales de riesgo.
+                </p>
+                <p className="text-gray-400 text-sm">
+                  Esta es una versión gratuita con funcionalidades limitadas. Los datos mostrados son simulados con fines de demostración.
+                </p>
+                <div className="mt-4 pt-4 border-t border-gray-700">
+                  <p className="text-xs text-gray-500">
+                    Descargo de responsabilidad: Esta herramienta es solo para fines informativos y educativos. No constituye asesoramiento financiero. Siempre realiza tu propia investigación antes de invertir en cualquier criptomoneda.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <footer className="mt-12 text-center text-gray-500 text-sm">
+            <p>Solana Memecoin Analyzer &copy; {new Date().getFullYear()}</p>
+            <p className="mt-1">Creado con ❤️ para la comunidad Solana</p>
+          </footer>
+        </div>
+      );
+    };
+
+    // Renderizar la aplicación
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+</html>
